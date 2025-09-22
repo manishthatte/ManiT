@@ -6,13 +6,13 @@
 #include "codegen.hpp"
 
 int main() {
-    // Test case for mutable variables and while loops.
+    // Test case for the new boolean type and control flow.
     std::string source_code = R"(
-        var i = 0;
-        while (i < 5) {
-            i = i + 1;
+        if (10 < 20) {
+            return 55;
+        } else {
+            return 99;
         }
-        return i;
     )";
 
     Lexer l(source_code);

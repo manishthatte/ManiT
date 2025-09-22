@@ -17,6 +17,11 @@ std::string IntegerLiteral::to_string() const {
     return token.literal;
 }
 
+// **NEW**
+std::string BooleanLiteral::to_string() const {
+    return token.literal;
+}
+
 std::string PrefixExpression::to_string() const {
     std::stringstream ss;
     ss << "(" << op << right->to_string() << ")";
@@ -29,7 +34,6 @@ std::string InfixExpression::to_string() const {
     return ss.str();
 }
 
-// ** NEW IMPLEMENTATION **
 std::string AssignmentExpression::to_string() const {
     std::stringstream ss;
     ss << "(" << name->to_string() << " = " << value->to_string() << ")";
@@ -46,7 +50,6 @@ std::string LetStatement::to_string() const {
     return ss.str();
 }
 
-// ** NEW IMPLEMENTATION **
 std::string VarStatement::to_string() const {
     std::stringstream ss;
     ss << token.literal << " " << name->to_string() << " = ";

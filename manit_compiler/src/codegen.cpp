@@ -18,9 +18,15 @@ llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
     if (auto const* int_lit = dynamic_cast<const IntegerLiteral*>(&expr)) {
         return builder->getInt32(int_lit->value);
     }
+    else if (auto const* bool_lit = dynamic_cast<const BooleanLiteral*>(&expr)) {
+        // **NEW**: Generate a 1-bit integer (i1) for boolean values.
+        return builder->getInt1(bool_lit->value);
+    }
     else if (auto const* ident = dynamic_cast<const Identifier*>(&expr)) {
         if (named_values.count(ident->value)) {
             // A variable is a pointer (AllocaInst). To get its value, we must load it.
+            // **FIX**: We need to know the type to load. This assumes i32 for now.
+            // A proper type system will be needed to handle loading booleans vs integers.
             return builder->CreateLoad(builder->getInt32Ty(), named_values[ident->value], ident->value.c_str());
         }
         return nullptr; // Error: unknown variable
@@ -43,6 +49,7 @@ llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
         if (prefix_expr->op == "-") {
             return builder->CreateNeg(right, "negtmp");
         }
+        // Future: handle '!' operator for booleans here.
         return nullptr;
     }
     else if (auto const* infix_expr = dynamic_cast<const InfixExpression*>(&expr)) {
@@ -58,24 +65,20 @@ llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
             return builder->CreateMul(left, right, "multmp");
         } else if (infix_expr->op == "/") {
             return builder->CreateSDiv(left, right, "divtmp");
-        } else if (infix_expr->op == "==") {
-            auto* cmp = builder->CreateICmpEQ(left, right, "eqtmp");
-            return builder->CreateZExt(cmp, builder->getInt32Ty(), "zexttmp");
+        } 
+        // **UPDATED**: Comparison operators now return i1 directly.
+        else if (infix_expr->op == "==") {
+            return builder->CreateICmpEQ(left, right, "eqtmp");
         } else if (infix_expr->op == "!=") {
-            auto* cmp = builder->CreateICmpNE(left, right, "neqtmp");
-            return builder->CreateZExt(cmp, builder->getInt32Ty(), "zexttmp");
+            return builder->CreateICmpNE(left, right, "neqtmp");
         } else if (infix_expr->op == "<") {
-            auto* cmp = builder->CreateICmpSLT(left, right, "lttmp");
-            return builder->CreateZExt(cmp, builder->getInt32Ty(), "zexttmp");
+            return builder->CreateICmpSLT(left, right, "lttmp");
         } else if (infix_expr->op == "<=") {
-            auto* cmp = builder->CreateICmpSLE(left, right, "letmp");
-            return builder->CreateZExt(cmp, builder->getInt32Ty(), "zexttmp");
+            return builder->CreateICmpSLE(left, right, "letmp");
         } else if (infix_expr->op == ">") {
-            auto* cmp = builder->CreateICmpSGT(left, right, "gttmp");
-            return builder->CreateZExt(cmp, builder->getInt32Ty(), "zexttmp");
+            return builder->CreateICmpSGT(left, right, "gttmp");
         } else if (infix_expr->op == ">=") {
-            auto* cmp = builder->CreateICmpSGE(left, right, "getmp");
-            return builder->CreateZExt(cmp, builder->getInt32Ty(), "zexttmp");
+            return builder->CreateICmpSGE(left, right, "getmp");
         }
         return nullptr;
     }
@@ -83,7 +86,8 @@ llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
         llvm::Value* cond_v = generate_expression(*if_expr->condition);
         if (!cond_v) return nullptr;
 
-        cond_v = builder->CreateICmpNE(cond_v, builder->getInt32(0), "ifcond");
+        // **UPDATED**: No longer need to compare to zero. The condition is already an i1.
+        // cond_v = builder->CreateICmpNE(cond_v, builder->getInt32(0), "ifcond");
 
         llvm::Function* the_function = builder->GetInsertBlock()->getParent();
 
@@ -117,7 +121,7 @@ llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
         llvm::Value* else_val = nullptr;
         llvm::BasicBlock* else_end_bb = else_bb;
         if (if_expr->alternative) {
-            the_function->insert(the_function->end(), else_bb); // Add block to function
+            the_function->insert(the_function->end(), else_bb);
             builder->SetInsertPoint(else_bb);
             if (!if_expr->alternative->statements.empty()) {
                 if (auto* last_stmt_as_expr = dynamic_cast<ExpressionStatement*>(if_expr->alternative->statements.back().get())) {
@@ -135,7 +139,7 @@ llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
             else_end_bb = builder->GetInsertBlock();
         }
         
-        the_function->insert(the_function->end(), merge_bb); // Add block to function
+        the_function->insert(the_function->end(), merge_bb);
         builder->SetInsertPoint(merge_bb);
 
         if (then_val || else_val) {
@@ -211,7 +215,10 @@ llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
         builder->SetInsertPoint(loop_header_bb);
         llvm::Value* cond_v = generate_expression(*while_expr->condition);
         if (!cond_v) return nullptr;
-        cond_v = builder->CreateICmpNE(cond_v, builder->getInt32(0), "loopcond");
+        
+        // **UPDATED**: No longer need to compare to zero. The condition is already an i1.
+        // cond_v = builder->CreateICmpNE(cond_v, builder->getInt32(0), "loopcond");
+        
         builder->CreateCondBr(cond_v, loop_body_bb, loop_exit_bb);
 
         builder->SetInsertPoint(loop_body_bb);
@@ -284,7 +291,6 @@ void CodeGenerator::generate(const Program& program) {
     
     bool user_defined_main = false;
     for (const auto& stmt : program.statements) {
-        // ** FIXED: Use stmt.get() to access the raw pointer **
         if (auto const* let_stmt = dynamic_cast<const LetStatement*>(stmt.get())) {
             if (let_stmt->name->value == "main") {
                 user_defined_main = true;

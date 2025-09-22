@@ -1,7 +1,7 @@
 #include "parser.hpp"
 #include <stdexcept>
-#include <charconv> // Required for std::from_chars
-#include <system_error> // Required for std::errc
+#include <charconv> 
+#include <system_error>
 
 // Constructor
 Parser::Parser(Lexer& l) : lexer(l) {
@@ -81,6 +81,11 @@ std::unique_ptr<Expression> Parser::parse_expression(Precedence precedence) {
         case TokenType::INTEGER_LITERAL:
             left_exp = parse_integer_literal();
             break;
+        // **NEW**
+        case TokenType::TRUE:
+        case TokenType::FALSE:
+            left_exp = parse_boolean_literal();
+            break;
         case TokenType::BANG:
         case TokenType::MINUS:
             left_exp = parse_prefix_expression();
@@ -142,7 +147,6 @@ std::unique_ptr<Expression> Parser::parse_assignment_expression(std::unique_ptr<
     return expr;
 }
 
-
 std::unique_ptr<Expression> Parser::parse_identifier() {
     auto ident = std::make_unique<Identifier>();
     ident->token = current_token;
@@ -150,7 +154,6 @@ std::unique_ptr<Expression> Parser::parse_identifier() {
     return ident;
 }
 
-// ** FIXED FUNCTION **
 std::unique_ptr<Expression> Parser::parse_integer_literal() {
     auto literal = std::make_unique<IntegerLiteral>();
     literal->token = current_token;
@@ -158,11 +161,18 @@ std::unique_ptr<Expression> Parser::parse_integer_literal() {
     const std::string& s = current_token.literal;
     auto result = std::from_chars(s.data(), s.data() + s.size(), literal->value);
 
-    // Check if the conversion was successful and consumed the entire string
     if (result.ec != std::errc() || result.ptr != s.data() + s.size()) {
-        return nullptr; // Conversion failed
+        return nullptr;
     }
     
+    return literal;
+}
+
+// **NEW FUNCTION**
+std::unique_ptr<Expression> Parser::parse_boolean_literal() {
+    auto literal = std::make_unique<BooleanLiteral>();
+    literal->token = current_token;
+    literal->value = (current_token.type == TokenType::TRUE);
     return literal;
 }
 
@@ -249,7 +259,6 @@ std::unique_ptr<VarStatement> Parser::parse_var_statement() {
     return stmt;
 }
 
-
 std::unique_ptr<ExpressionStatement> Parser::parse_expression_statement() {
     auto stmt = std::make_unique<ExpressionStatement>();
     stmt->token = current_token;
@@ -260,7 +269,6 @@ std::unique_ptr<ExpressionStatement> Parser::parse_expression_statement() {
     }
     return stmt;
 }
-
 
 std::unique_ptr<BlockStatement> Parser::parse_block_statement() {
     auto block = std::make_unique<BlockStatement>();
