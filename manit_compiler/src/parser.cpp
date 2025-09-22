@@ -1,9 +1,9 @@
 #include "parser.hpp"
-#include <iostream>
+#include <stdexcept> // <-- FIX: Added missing header for std::invalid_argument
 
 // Constructor
 Parser::Parser(Lexer& l) : lexer(l) {
-    // ... (rest of the constructor is unchanged)
+    // Initialize precedence map
     precedences = {
         {TokenType::EQUAL_EQUAL, Precedence::EQUALS},
         {TokenType::BANG_EQUAL, Precedence::EQUALS},
@@ -22,7 +22,7 @@ Parser::Parser(Lexer& l) : lexer(l) {
     next_token();
 }
 
-// ... (helper methods are unchanged)
+// Helper methods for precedence
 Precedence Parser::peek_precedence() {
     if (precedences.count(peek_token.type)) {
         return precedences[peek_token.type];
@@ -59,17 +59,13 @@ std::unique_ptr<Statement> Parser::parse_statement() {
         case TokenType::LET:
             return parse_let_statement();
         case TokenType::RETURN:
-            // ADDED THIS LOG
-            std::cerr << "DEBUG: parse_statement() saw RETURN token, calling parse_return_statement().\n";
             return parse_return_statement();
         default:
-            // ADDED THIS LOG
-            std::cerr << "DEBUG: parse_statement() saw token '" << current_token.literal << "', taking default path.\n";
             return parse_expression_statement();
     }
 }
 
-// ... (the rest of the file is unchanged)
+// Expression Parsing (Pratt Parser)
 std::unique_ptr<Expression> Parser::parse_expression(Precedence precedence) {
     // Prefix parsing
     std::unique_ptr<Expression> left_exp;
