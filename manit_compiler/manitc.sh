@@ -13,6 +13,8 @@ echo 'let main = fn() {
 
 # 2. Re-compile the manitc compiler
 echo "--- Compiling manitc ---"
+# Create the build directory if it doesn't exist to ensure a clean start
+mkdir -p build
 cd build
 cmake .. > /dev/null
 make
@@ -31,8 +33,7 @@ echo ""
 
 # 4. Display the results.
 echo "--- LLVM IR Output (stdout) ---"
-# No stdout is expected if it segfaults before printing, but we check anyway.
-# The IR will be in manitc.log as of the last change, but good practice to separate.
+# The IR is now printed to stdout by our compiler. We'll cat the log for diagnostics.
 
 echo ""
 echo "--- Diagnostic Log (manitc.log) ---"

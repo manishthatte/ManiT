@@ -3,7 +3,7 @@
 
 // Constructor
 Parser::Parser(Lexer& l) : lexer(l) {
-    // Initialize precedence map
+    // ... (rest of the constructor is unchanged)
     precedences = {
         {TokenType::EQUAL_EQUAL, Precedence::EQUALS},
         {TokenType::BANG_EQUAL, Precedence::EQUALS},
@@ -22,7 +22,7 @@ Parser::Parser(Lexer& l) : lexer(l) {
     next_token();
 }
 
-// Helper methods for precedence
+// ... (helper methods are unchanged)
 Precedence Parser::peek_precedence() {
     if (precedences.count(peek_token.type)) {
         return precedences[peek_token.type];
@@ -59,13 +59,17 @@ std::unique_ptr<Statement> Parser::parse_statement() {
         case TokenType::LET:
             return parse_let_statement();
         case TokenType::RETURN:
+            // ADDED THIS LOG
+            std::cerr << "DEBUG: parse_statement() saw RETURN token, calling parse_return_statement().\n";
             return parse_return_statement();
         default:
+            // ADDED THIS LOG
+            std::cerr << "DEBUG: parse_statement() saw token '" << current_token.literal << "', taking default path.\n";
             return parse_expression_statement();
     }
 }
 
-// Expression Parsing (Pratt Parser)
+// ... (the rest of the file is unchanged)
 std::unique_ptr<Expression> Parser::parse_expression(Precedence precedence) {
     // Prefix parsing
     std::unique_ptr<Expression> left_exp;
@@ -86,12 +90,11 @@ std::unique_ptr<Expression> Parser::parse_expression(Precedence precedence) {
         case TokenType::FN:
             left_exp = parse_function_literal();
             break;
-        // *** THIS IS THE CRITICAL FIX ***
         case TokenType::WHILE:
             left_exp = parse_while_expression();
             break;
         default:
-            return nullptr; // No prefix parse function found
+            return nullptr;
     }
 
     // Infix parsing
@@ -321,7 +324,6 @@ std::unique_ptr<Expression> Parser::parse_call_expression(std::unique_ptr<Expres
     return expr;
 }
 
-// *** THIS IS THE CRITICAL FIX ***
 std::unique_ptr<Expression> Parser::parse_while_expression() {
     auto expr = std::make_unique<WhileExpression>();
     expr->token = current_token; // The 'while' token

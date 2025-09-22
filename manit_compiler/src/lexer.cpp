@@ -18,6 +18,7 @@ std::map<std::string, TokenType> keywords = {
     {"var", TokenType::VAR},
     {"if", TokenType::IF},
     {"else", TokenType::ELSE},
+    {"while", TokenType::WHILE},
     {"return", TokenType::RETURN},
     {"true", TokenType::TRUE},
     {"false", TokenType::FALSE},
@@ -98,8 +99,19 @@ Token Lexer::next_token() {
             }
             break;
         case '*': tok = {TokenType::STAR, "*"}; break;
-        case '/': tok = {TokenType::SLASH, "/"}; break;
-        // *** UPDATED LOGIC FOR <= and >= ***
+        case '/':
+            // **FIX:** Added logic to handle single-line comments.
+            if (peek_char() == '/') {
+                // It's a comment, so we read until the end of the line or EOF.
+                while (ch != '\n' && ch != 0) {
+                    read_char();
+                }
+                // After skipping the comment, get the next actual token.
+                return next_token();
+            } else {
+                tok = {TokenType::SLASH, "/"};
+            }
+            break;
         case '<':
             if (peek_char() == '=') {
                 read_char();
