@@ -9,7 +9,6 @@ Parser::Parser(Lexer& l) : lexer(l) {
         {TokenType::BANG_EQUAL, Precedence::EQUALS},
         {TokenType::LESS, Precedence::LESSGREATER},
         {TokenType::GREATER, Precedence::LESSGREATER},
-        // *** NEW PRECEDENCES FOR COMPARISON OPERATORS ***
         {TokenType::LESS_EQUAL, Precedence::LESSGREATER},
         {TokenType::GREATER_EQUAL, Precedence::LESSGREATER},
         {TokenType::PLUS, Precedence::SUM},
@@ -86,6 +85,10 @@ std::unique_ptr<Expression> Parser::parse_expression(Precedence precedence) {
             break;
         case TokenType::FN:
             left_exp = parse_function_literal();
+            break;
+        // *** THIS IS THE CRITICAL FIX ***
+        case TokenType::WHILE:
+            left_exp = parse_while_expression();
             break;
         default:
             return nullptr; // No prefix parse function found
@@ -315,5 +318,27 @@ std::unique_ptr<Expression> Parser::parse_call_expression(std::unique_ptr<Expres
     expr->token = current_token;
     expr->function = std::move(function);
     expr->arguments = parse_call_arguments();
+    return expr;
+}
+
+// *** THIS IS THE CRITICAL FIX ***
+std::unique_ptr<Expression> Parser::parse_while_expression() {
+    auto expr = std::make_unique<WhileExpression>();
+    expr->token = current_token; // The 'while' token
+
+    if (peek_token.type != TokenType::LPAREN) return nullptr;
+    next_token();
+
+    next_token(); // Move past '(' to the expression
+    expr->condition = parse_expression(Precedence::LOWEST);
+
+    if (peek_token.type != TokenType::RPAREN) return nullptr;
+    next_token();
+
+    if (peek_token.type != TokenType::LBRACE) return nullptr;
+    next_token();
+    
+    expr->body = parse_block_statement();
+
     return expr;
 }

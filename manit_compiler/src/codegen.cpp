@@ -1,6 +1,7 @@
 #include "codegen.hpp"
 #include <llvm/IR/Verifier.h>
 #include <llvm/Support/raw_ostream.h>
+#include <typeinfo> // Required for logging AST node types
 
 CodeGenerator::CodeGenerator() {
     context = std::make_unique<llvm::LLVMContext>();
@@ -8,7 +9,14 @@ CodeGenerator::CodeGenerator() {
     builder = std::make_unique<llvm::IRBuilder<>>(*context);
 }
 
+// This is a new helper function to create an Alloca instruction in the entry block.
+llvm::AllocaInst* CodeGenerator::create_entry_block_alloca(llvm::Function* the_function, const std::string& var_name, llvm::Type* type) {
+    llvm::IRBuilder<> tmp_builder(&the_function->getEntryBlock(), the_function->getEntryBlock().begin());
+    return tmp_builder.CreateAlloca(type, nullptr, var_name);
+}
+
 llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
+    llvm::errs() << "DEBUG: Visiting expression of type: " << typeid(expr).name() << "\n";
     if (auto const* int_lit = dynamic_cast<const IntegerLiteral*>(&expr)) {
         return builder->getInt32(int_lit->value);
     }
@@ -31,7 +39,6 @@ llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
         llvm::Value* right = generate_expression(*infix_expr->right);
         if (!left || !right) return nullptr;
         
-        // --- UPDATED FOR COMPARISON OPERATORS ---
         if (infix_expr->op == "+") {
             return builder->CreateAdd(left, right, "addtmp");
         } else if (infix_expr->op == "-") {
@@ -70,8 +77,8 @@ llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
         llvm::Function* the_function = builder->GetInsertBlock()->getParent();
 
         llvm::BasicBlock* then_bb = llvm::BasicBlock::Create(*context, "then", the_function);
-        llvm::BasicBlock* else_bb = llvm::BasicBlock::Create(*context, "else");
-        llvm::BasicBlock* merge_bb = llvm::BasicBlock::Create(*context, "ifcont");
+        llvm::BasicBlock* else_bb = llvm::BasicBlock::Create(*context, "else", the_function);
+        llvm::BasicBlock* merge_bb = llvm::BasicBlock::Create(*context, "ifcont", the_function);
 
         builder->CreateCondBr(cond_v, then_bb, else_bb);
 
@@ -91,8 +98,7 @@ llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
         }
         if (!builder->GetInsertBlock()->getTerminator()) builder->CreateBr(merge_bb);
         llvm::BasicBlock* then_end_bb = builder->GetInsertBlock();
-
-        the_function->insert(the_function->end(), else_bb);
+        
         builder->SetInsertPoint(else_bb);
         llvm::Value* else_val = nullptr;
         if (if_expr->alternative) {
@@ -112,7 +118,6 @@ llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
         if (!builder->GetInsertBlock()->getTerminator()) builder->CreateBr(merge_bb);
         llvm::BasicBlock* else_end_bb = builder->GetInsertBlock();
         
-        the_function->insert(the_function->end(), merge_bb);
         builder->SetInsertPoint(merge_bb);
         llvm::PHINode* pn = builder->CreatePHI(builder->getInt32Ty(), 2, "iftmp");
 
@@ -136,7 +141,7 @@ llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
         for (auto& arg : the_function->args()) {
             const std::string& param_name = func_lit->parameters[i++]->value;
             arg.setName(param_name);
-            llvm::AllocaInst* alloca = builder->CreateAlloca(builder->getInt32Ty(), nullptr, param_name);
+            llvm::AllocaInst* alloca = create_entry_block_alloca(the_function, param_name, builder->getInt32Ty());
             builder->CreateStore(&arg, alloca);
             named_values[param_name] = alloca;
         }
@@ -177,11 +182,42 @@ llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
         
         return builder->CreateCall(callee_func, args_v, "calltmp");
     }
+    else if (auto const* while_expr = dynamic_cast<const WhileExpression*>(&expr)) {
+        llvm::errs() << "DEBUG: Entering WhileExpression codegen...\n";
+        llvm::Function* the_function = builder->GetInsertBlock()->getParent();
+
+        llvm::BasicBlock* loop_header_bb = llvm::BasicBlock::Create(*context, "loop_header", the_function);
+        llvm::BasicBlock* loop_body_bb = llvm::BasicBlock::Create(*context, "loop_body", the_function);
+        llvm::BasicBlock* loop_exit_bb = llvm::BasicBlock::Create(*context, "loop_exit", the_function);
+
+        builder->CreateBr(loop_header_bb);
+
+        builder->SetInsertPoint(loop_header_bb);
+        llvm::Value* cond_v = generate_expression(*while_expr->condition);
+        if (!cond_v) return nullptr;
+        cond_v = builder->CreateICmpNE(cond_v, builder->getInt32(0), "loopcond");
+        builder->CreateCondBr(cond_v, loop_body_bb, loop_exit_bb);
+
+        builder->SetInsertPoint(loop_body_bb);
+        for (const auto& stmt : while_expr->body->statements) {
+            generate_statement(*stmt);
+        }
+        
+        if (!builder->GetInsertBlock()->getTerminator()) {
+            builder->CreateBr(loop_header_bb);
+        }
+
+        builder->SetInsertPoint(loop_exit_bb);
+        llvm::errs() << "DEBUG: Exiting WhileExpression codegen.\n";
+
+        return llvm::Constant::getNullValue(builder->getInt32Ty());
+    }
 
     return nullptr;
 }
 
 void CodeGenerator::generate_statement(const Statement& stmt) {
+    llvm::errs() << "DEBUG: Visiting statement of type: " << typeid(stmt).name() << "\n";
     if (auto const* let_stmt = dynamic_cast<const LetStatement*>(&stmt)) {
         llvm::Value* val = generate_expression(*let_stmt->value);
         if (val) {
@@ -189,7 +225,8 @@ void CodeGenerator::generate_statement(const Statement& stmt) {
                 func->setName(let_stmt->name->value);
                 return;
             }
-            llvm::AllocaInst* alloca = builder->CreateAlloca(val->getType(), nullptr, let_stmt->name->value.c_str());
+            llvm::Function* the_function = builder->GetInsertBlock()->getParent();
+            llvm::AllocaInst* alloca = create_entry_block_alloca(the_function, let_stmt->name->value, val->getType());
             builder->CreateStore(val, alloca);
             named_values[let_stmt->name->value] = alloca;
         }
@@ -200,6 +237,8 @@ void CodeGenerator::generate_statement(const Statement& stmt) {
             if (return_val) {
                 builder->CreateRet(return_val);
             }
+        } else {
+            builder->CreateRetVoid();
         }
     }
     else if (auto const* expr_stmt = dynamic_cast<const ExpressionStatement*>(&stmt)) {
@@ -208,26 +247,32 @@ void CodeGenerator::generate_statement(const Statement& stmt) {
 }
 
 void CodeGenerator::generate(const Program& program) {
+    llvm::errs() << "DEBUG: CodeGenerator::generate starting.\n";
     for (const auto& stmt : program.statements) {
         generate_statement(*stmt);
     }
 
     llvm::Function* main_func = module->getFunction("main");
-    if (!main_func) {
-        llvm::FunctionType* func_type = llvm::FunctionType::get(builder->getInt32Ty(), false);
-        main_func = llvm::Function::Create(func_type, llvm::Function::ExternalLinkage, "main", module.get());
-        llvm::BasicBlock* entry_block = llvm::BasicBlock::Create(*context, "entry", main_func);
-        builder->SetInsertPoint(entry_block);
-        builder->CreateRet(builder->getInt32(0));
-    }
-    
-    main_func->setLinkage(llvm::Function::ExternalLinkage);
-    
-    for (auto& func : *module) {
-        if (!func.isDeclaration()) {
-            llvm::verifyFunction(func);
+    if (main_func) {
+        if (main_func->getFunctionType() != llvm::FunctionType::get(builder->getInt32Ty(), false)) {
+            return;
         }
+        main_func->setLinkage(llvm::Function::ExternalLinkage);
     }
 
+    llvm::errs() << "--- Finalizing Generation ---\n";
+    
+    // Step 1: Print the generated IR to standard output, regardless of its validity.
+    // This ensures we see the output even if verification crashes.
     module->print(llvm::outs(), nullptr);
+
+    // Step 2: Verify the module and print diagnostics to standard error.
+    llvm::errs() << "\n--- Verifying module... ---\n";
+    bool broken = llvm::verifyModule(*module, &llvm::errs());
+    if (broken) {
+        llvm::errs() << "--- !!! MODULE VERIFICATION FAILED !!! ---\n";
+    } else {
+        llvm::errs() << "--- Module verification PASSED ---\n";
+    }
+    llvm::errs() << "--- Code generation process finished. ---\n";
 }
