@@ -1,0 +1,9 @@
+/home/manish/Language/manit_compiler/build/CMakeFiles/manitc.dir
+/home/manish/Language/manit_compiler/build/CMakeFiles/intrinsics_gen.dir
+/home/manish/Language/manit_compiler/build/CMakeFiles/omp_gen.dir
+/home/manish/Language/manit_compiler/build/CMakeFiles/acc_gen.dir
+/home/manish/Language/manit_compiler/build/CMakeFiles/ARMTargetParserTableGen.dir
+/home/manish/Language/manit_compiler/build/CMakeFiles/AArch64TargetParserTableGen.dir
+/home/manish/Language/manit_compiler/build/CMakeFiles/RISCVTargetParserTableGen.dir
+/home/manish/Language/manit_compiler/build/CMakeFiles/edit_cache.dir
+/home/manish/Language/manit_compiler/build/CMakeFiles/rebuild_cache.dir

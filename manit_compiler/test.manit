@@ -1,0 +1,5 @@
+let result = if (1) {
+    return 55;
+} else {
+    return 99;
+};
