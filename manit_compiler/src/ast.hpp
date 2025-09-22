@@ -98,7 +98,6 @@ struct IfExpression : public Expression {
     std::string to_string() const override;
 };
 
-// *** NEW AST NODE ***
 // Represents a function definition, e.g., `fn(x, y) { x + y; }`
 struct FunctionLiteral : public Expression {
     Token token; // The 'fn' token
@@ -107,12 +106,20 @@ struct FunctionLiteral : public Expression {
     std::string to_string() const override;
 };
 
-// *** NEW AST NODE ***
 // Represents a function call, e.g., `add(2, 3)`
 struct CallExpression : public Expression {
     Token token; // The '(' token
     std::unique_ptr<Expression> function; // Identifier or FunctionLiteral
     std::vector<std::unique_ptr<Expression>> arguments;
+    std::string to_string() const override;
+};
+
+// *** NEW AST NODE ***
+// Represents a while loop, e.g., `while (x < 10) { ... }`
+struct WhileExpression : public Expression {
+    Token token; // The 'while' token
+    std::unique_ptr<Expression> condition;
+    std::unique_ptr<BlockStatement> body;
     std::string to_string() const override;
 };
 

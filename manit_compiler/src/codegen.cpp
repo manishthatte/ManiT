@@ -30,7 +30,8 @@ llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
         llvm::Value* left = generate_expression(*infix_expr->left);
         llvm::Value* right = generate_expression(*infix_expr->right);
         if (!left || !right) return nullptr;
-
+        
+        // --- UPDATED FOR COMPARISON OPERATORS ---
         if (infix_expr->op == "+") {
             return builder->CreateAdd(left, right, "addtmp");
         } else if (infix_expr->op == "-") {
@@ -39,6 +40,24 @@ llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
             return builder->CreateMul(left, right, "multmp");
         } else if (infix_expr->op == "/") {
             return builder->CreateSDiv(left, right, "divtmp");
+        } else if (infix_expr->op == "==") {
+            auto* cmp = builder->CreateICmpEQ(left, right, "eqtmp");
+            return builder->CreateZExt(cmp, builder->getInt32Ty(), "zexttmp");
+        } else if (infix_expr->op == "!=") {
+            auto* cmp = builder->CreateICmpNE(left, right, "neqtmp");
+            return builder->CreateZExt(cmp, builder->getInt32Ty(), "zexttmp");
+        } else if (infix_expr->op == "<") {
+            auto* cmp = builder->CreateICmpSLT(left, right, "lttmp");
+            return builder->CreateZExt(cmp, builder->getInt32Ty(), "zexttmp");
+        } else if (infix_expr->op == "<=") {
+            auto* cmp = builder->CreateICmpSLE(left, right, "letmp");
+            return builder->CreateZExt(cmp, builder->getInt32Ty(), "zexttmp");
+        } else if (infix_expr->op == ">") {
+            auto* cmp = builder->CreateICmpSGT(left, right, "gttmp");
+            return builder->CreateZExt(cmp, builder->getInt32Ty(), "zexttmp");
+        } else if (infix_expr->op == ">=") {
+            auto* cmp = builder->CreateICmpSGE(left, right, "getmp");
+            return builder->CreateZExt(cmp, builder->getInt32Ty(), "zexttmp");
         }
         return nullptr;
     }
@@ -141,15 +160,13 @@ llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
         auto const* ident = dynamic_cast<const Identifier*>(call_expr->function.get());
         if (!ident) return nullptr;
 
-        // *** THIS IS THE FIX ***
-        // Look up the function directly in the module by its name.
         llvm::Function* callee_func = module->getFunction(ident->value);
         if (!callee_func) {
-            return nullptr; // Error: Function not found.
+            return nullptr;
         }
 
         if (callee_func->arg_size() != call_expr->arguments.size()) {
-            return nullptr; // Error: incorrect number of arguments
+            return nullptr;
         }
 
         std::vector<llvm::Value*> args_v;
@@ -204,7 +221,6 @@ void CodeGenerator::generate(const Program& program) {
         builder->CreateRet(builder->getInt32(0));
     }
     
-    // Set main function to have external linkage so it can be called
     main_func->setLinkage(llvm::Function::ExternalLinkage);
     
     for (auto& func : *module) {

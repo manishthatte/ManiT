@@ -9,11 +9,13 @@ Parser::Parser(Lexer& l) : lexer(l) {
         {TokenType::BANG_EQUAL, Precedence::EQUALS},
         {TokenType::LESS, Precedence::LESSGREATER},
         {TokenType::GREATER, Precedence::LESSGREATER},
+        // *** NEW PRECEDENCES FOR COMPARISON OPERATORS ***
+        {TokenType::LESS_EQUAL, Precedence::LESSGREATER},
+        {TokenType::GREATER_EQUAL, Precedence::LESSGREATER},
         {TokenType::PLUS, Precedence::SUM},
         {TokenType::MINUS, Precedence::SUM},
         {TokenType::SLASH, Precedence::PRODUCT},
         {TokenType::STAR, Precedence::PRODUCT},
-        // *** NEW PRECEDENCE FOR FUNCTION CALLS ***
         {TokenType::LPAREN, Precedence::CALL},
     };
 
@@ -82,7 +84,6 @@ std::unique_ptr<Expression> Parser::parse_expression(Precedence precedence) {
         case TokenType::IF:
             left_exp = parse_if_expression();
             break;
-        // *** NEW PREFIX PARSER FOR FUNCTIONS ***
         case TokenType::FN:
             left_exp = parse_function_literal();
             break;
@@ -92,7 +93,6 @@ std::unique_ptr<Expression> Parser::parse_expression(Precedence precedence) {
 
     // Infix parsing
     while (peek_token.type != TokenType::SEMICOLON && precedence < peek_precedence()) {
-        // *** REFACTORED TO HANDLE DIFFERENT INFIX TYPES ***
         if (peek_token.type == TokenType::LPAREN) {
             next_token();
             left_exp = parse_call_expression(std::move(left_exp));
@@ -240,17 +240,15 @@ std::unique_ptr<Expression> Parser::parse_if_expression() {
     return expr;
 }
 
-// *** NEW IMPLEMENTATIONS FOR FUNCTIONS ***
-
 std::vector<std::unique_ptr<Identifier>> Parser::parse_function_parameters() {
     std::vector<std::unique_ptr<Identifier>> params;
 
     if (peek_token.type == TokenType::RPAREN) {
-        next_token(); // Consume ')'
+        next_token();
         return params;
     }
 
-    next_token(); // Consume '(' to get to first parameter
+    next_token();
 
     auto ident = std::make_unique<Identifier>();
     ident->token = current_token;
@@ -258,31 +256,31 @@ std::vector<std::unique_ptr<Identifier>> Parser::parse_function_parameters() {
     params.push_back(std::move(ident));
 
     while (peek_token.type == TokenType::COMMA) {
-        next_token(); // consume ','
-        next_token(); // move to next parameter
+        next_token();
+        next_token();
         auto next_ident = std::make_unique<Identifier>();
         next_ident->token = current_token;
         next_ident->value = current_token.literal;
         params.push_back(std::move(next_ident));
     }
 
-    if (peek_token.type != TokenType::RPAREN) return {}; // Return empty on error
-    next_token(); // Consume ')'
+    if (peek_token.type != TokenType::RPAREN) return {};
+    next_token();
     
     return params;
 }
 
 std::unique_ptr<Expression> Parser::parse_function_literal() {
     auto func = std::make_unique<FunctionLiteral>();
-    func->token = current_token; // 'fn' token
+    func->token = current_token;
 
     if (peek_token.type != TokenType::LPAREN) return nullptr;
-    next_token(); // consume '('
+    next_token();
 
     func->parameters = parse_function_parameters();
 
     if (peek_token.type != TokenType::LBRACE) return nullptr;
-    next_token(); // consume '{'
+    next_token();
 
     func->body = parse_block_statement();
 
@@ -293,28 +291,28 @@ std::vector<std::unique_ptr<Expression>> Parser::parse_call_arguments() {
     std::vector<std::unique_ptr<Expression>> args;
 
     if (peek_token.type == TokenType::RPAREN) {
-        next_token(); // Consume ')'
+        next_token();
         return args;
     }
 
-    next_token(); // Consume '(' to get to first argument
+    next_token();
     args.push_back(parse_expression(Precedence::LOWEST));
 
     while (peek_token.type == TokenType::COMMA) {
-        next_token(); // Consume ','
-        next_token(); // Move to next argument's first token
+        next_token();
+        next_token();
         args.push_back(parse_expression(Precedence::LOWEST));
     }
 
-    if (peek_token.type != TokenType::RPAREN) return {}; // Return empty on error
-    next_token(); // Consume ')'
+    if (peek_token.type != TokenType::RPAREN) return {};
+    next_token();
 
     return args;
 }
 
 std::unique_ptr<Expression> Parser::parse_call_expression(std::unique_ptr<Expression> function) {
     auto expr = std::make_unique<CallExpression>();
-    expr->token = current_token; // '(' token
+    expr->token = current_token;
     expr->function = std::move(function);
     expr->arguments = parse_call_arguments();
     return expr;

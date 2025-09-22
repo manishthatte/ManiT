@@ -76,7 +76,6 @@ std::string IfExpression::to_string() const {
     return ss.str();
 }
 
-// *** NEW IMPLEMENTATION ***
 std::string FunctionLiteral::to_string() const {
     std::stringstream ss;
     ss << token.literal; // "fn"
@@ -92,7 +91,6 @@ std::string FunctionLiteral::to_string() const {
     return ss.str();
 }
 
-// *** NEW IMPLEMENTATION ***
 std::string CallExpression::to_string() const {
     std::stringstream ss;
     ss << function->to_string();
@@ -104,5 +102,13 @@ std::string CallExpression::to_string() const {
         }
     }
     ss << ")";
+    return ss.str();
+}
+
+// *** NEW IMPLEMENTATION ***
+std::string WhileExpression::to_string() const {
+    std::stringstream ss;
+    ss << "while" << condition->to_string() << " ";
+    ss << body->to_string();
     return ss.str();
 }

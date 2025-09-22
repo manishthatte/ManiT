@@ -21,7 +21,6 @@ std::map<std::string, TokenType> keywords = {
     {"return", TokenType::RETURN},
     {"true", TokenType::TRUE},
     {"false", TokenType::FALSE},
-    // Add other keywords here...
 };
 
 Lexer::Lexer(std::string input) : input(input), position(0), read_position(0), ch(0) {
@@ -100,8 +99,23 @@ Token Lexer::next_token() {
             break;
         case '*': tok = {TokenType::STAR, "*"}; break;
         case '/': tok = {TokenType::SLASH, "/"}; break;
-        case '<': tok = {TokenType::LESS, "<"}; break;
-        case '>': tok = {TokenType::GREATER, ">"}; break;
+        // *** UPDATED LOGIC FOR <= and >= ***
+        case '<':
+            if (peek_char() == '=') {
+                read_char();
+                tok = {TokenType::LESS_EQUAL, "<="};
+            } else {
+                tok = {TokenType::LESS, "<"};
+            }
+            break;
+        case '>':
+            if (peek_char() == '=') {
+                read_char();
+                tok = {TokenType::GREATER_EQUAL, ">="};
+            } else {
+                tok = {TokenType::GREATER, ">"};
+            }
+            break;
         case ';': tok = {TokenType::SEMICOLON, ";"}; break;
         case '(': tok = {TokenType::LPAREN, "("}; break;
         case ')': tok = {TokenType::RPAREN, ")"}; break;

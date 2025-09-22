@@ -3,14 +3,15 @@
 # Exit immediately if a command exits with a non-zero status.
 set -e
 
-# 1. Create a test file with a user-defined 'add' and 'main' function.
-echo 'let add = fn(a, b) {
-    return a + b;
-};
-
-let main = fn() {
-    let result = add(10, 20);
-    return result;
+# 1. Create a test file that uses comparison operators
+echo 'let main = fn() {
+    let a = 10;
+    let b = 20;
+    if (a < b) {
+        return 1;
+    } else {
+        return 0;
+    }
 };' > test.manit
 
 # 2. Re-compile the manitc compiler
