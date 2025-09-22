@@ -19,21 +19,18 @@ llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
         return builder->getInt32(int_lit->value);
     }
     else if (auto const* bool_lit = dynamic_cast<const BooleanLiteral*>(&expr)) {
-        // **NEW**: Generate a 1-bit integer (i1) for boolean values.
         return builder->getInt1(bool_lit->value);
     }
     else if (auto const* ident = dynamic_cast<const Identifier*>(&expr)) {
         if (named_values.count(ident->value)) {
-            // A variable is a pointer (AllocaInst). To get its value, we must load it.
-            // **FIX**: We need to know the type to load. This assumes i32 for now.
-            // A proper type system will be needed to handle loading booleans vs integers.
-            return builder->CreateLoad(builder->getInt32Ty(), named_values[ident->value], ident->value.c_str());
+            llvm::Type* var_type = named_values[ident->value]->getAllocatedType();
+            return builder->CreateLoad(var_type, named_values[ident->value], ident->value.c_str());
         }
-        return nullptr; // Error: unknown variable
+        return nullptr;
     }
     else if (auto const* assign_expr = dynamic_cast<const AssignmentExpression*>(&expr)) {
         if (named_values.find(assign_expr->name->value) == named_values.end()) {
-            return nullptr; // Error: undeclared variable
+            return nullptr;
         }
         llvm::AllocaInst* variable_alloca = named_values[assign_expr->name->value];
 
@@ -49,7 +46,6 @@ llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
         if (prefix_expr->op == "-") {
             return builder->CreateNeg(right, "negtmp");
         }
-        // Future: handle '!' operator for booleans here.
         return nullptr;
     }
     else if (auto const* infix_expr = dynamic_cast<const InfixExpression*>(&expr)) {
@@ -66,7 +62,6 @@ llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
         } else if (infix_expr->op == "/") {
             return builder->CreateSDiv(left, right, "divtmp");
         } 
-        // **UPDATED**: Comparison operators now return i1 directly.
         else if (infix_expr->op == "==") {
             return builder->CreateICmpEQ(left, right, "eqtmp");
         } else if (infix_expr->op == "!=") {
@@ -85,9 +80,6 @@ llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
     else if (auto const* if_expr = dynamic_cast<const IfExpression*>(&expr)) {
         llvm::Value* cond_v = generate_expression(*if_expr->condition);
         if (!cond_v) return nullptr;
-
-        // **UPDATED**: No longer need to compare to zero. The condition is already an i1.
-        // cond_v = builder->CreateICmpNE(cond_v, builder->getInt32(0), "ifcond");
 
         llvm::Function* the_function = builder->GetInsertBlock()->getParent();
 
@@ -216,9 +208,6 @@ llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
         llvm::Value* cond_v = generate_expression(*while_expr->condition);
         if (!cond_v) return nullptr;
         
-        // **UPDATED**: No longer need to compare to zero. The condition is already an i1.
-        // cond_v = builder->CreateICmpNE(cond_v, builder->getInt32(0), "loopcond");
-        
         builder->CreateCondBr(cond_v, loop_body_bb, loop_exit_bb);
 
         builder->SetInsertPoint(loop_body_bb);
@@ -231,6 +220,57 @@ llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
         }
 
         builder->SetInsertPoint(loop_exit_bb);
+        return llvm::Constant::getNullValue(builder->getInt32Ty());
+    }
+    // **FIXED LOGIC**
+    else if (auto const* for_expr = dynamic_cast<const ForLoopExpression*>(&expr)) {
+        auto old_named_values = named_values;
+        
+        if (for_expr->initializer) {
+            generate_statement(*for_expr->initializer);
+        }
+
+        llvm::Function* the_function = builder->GetInsertBlock()->getParent();
+
+        // **FIX**: Create all blocks with the parent function from the start.
+        llvm::BasicBlock* loop_header_bb = llvm::BasicBlock::Create(*context, "loop_header", the_function);
+        llvm::BasicBlock* loop_body_bb = llvm::BasicBlock::Create(*context, "loop_body", the_function);
+        llvm::BasicBlock* loop_inc_bb = llvm::BasicBlock::Create(*context, "loop_inc", the_function);
+        llvm::BasicBlock* loop_exit_bb = llvm::BasicBlock::Create(*context, "loop_exit", the_function);
+
+        builder->CreateBr(loop_header_bb);
+
+        builder->SetInsertPoint(loop_header_bb);
+        llvm::Value* cond_v;
+        if (for_expr->condition) {
+            cond_v = generate_expression(*for_expr->condition);
+            if (!cond_v) return nullptr;
+        } else {
+            cond_v = builder->getInt1(true);
+        }
+        builder->CreateCondBr(cond_v, loop_body_bb, loop_exit_bb);
+
+        builder->SetInsertPoint(loop_body_bb);
+        if (for_expr->body) {
+            for (const auto& stmt : for_expr->body->statements) {
+                generate_statement(*stmt);
+            }
+        }
+        if (!builder->GetInsertBlock()->getTerminator()) {
+            builder->CreateBr(loop_inc_bb);
+        }
+        
+        builder->SetInsertPoint(loop_inc_bb);
+        if (for_expr->increment) {
+            generate_expression(*for_expr->increment);
+        }
+        if (!builder->GetInsertBlock()->getTerminator()) {
+            builder->CreateBr(loop_header_bb);
+        }
+
+        builder->SetInsertPoint(loop_exit_bb);
+
+        named_values = old_named_values;
         return llvm::Constant::getNullValue(builder->getInt32Ty());
     }
 

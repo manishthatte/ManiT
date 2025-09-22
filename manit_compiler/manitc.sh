@@ -18,8 +18,8 @@ result=$?
 echo "--------------------------------"
 echo "ManiT program exited with code: $result"
 
-if [ "$result" -eq 55 ]; then
-    echo "SUCCESS: The result is 55 as expected."
+if [ "$result" -eq 45 ]; then
+    echo "SUCCESS: The result is 45 as expected."
 else
-    echo "FAILURE: The result was not 55."
+    echo "FAILURE: The result was not 45."
 fi

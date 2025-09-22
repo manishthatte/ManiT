@@ -45,7 +45,7 @@ private:
     // Parsing functions for different expression types
     std::unique_ptr<Expression> parse_identifier();
     std::unique_ptr<Expression> parse_integer_literal();
-    std::unique_ptr<Expression> parse_boolean_literal(); // **NEW**
+    std::unique_ptr<Expression> parse_boolean_literal();
     std::unique_ptr<Expression> parse_prefix_expression();
     std::unique_ptr<Expression> parse_infix_expression(std::unique_ptr<Expression> left);
     std::unique_ptr<Expression> parse_assignment_expression(std::unique_ptr<Expression> left);
@@ -56,6 +56,7 @@ private:
     std::vector<std::unique_ptr<Identifier>> parse_function_parameters();
     std::vector<std::unique_ptr<Expression>> parse_call_arguments();
     std::unique_ptr<Expression> parse_while_expression();
+    std::unique_ptr<Expression> parse_for_loop_expression(); // **NEW**
 
 
     Precedence peek_precedence();

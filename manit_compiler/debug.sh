@@ -1,3 +1,7 @@
+#!/bin/bash
+
+# Restore the correct, non-debugging test case in main.cpp
+cat <<'EOF' > src/main.cpp
 #include <iostream>
 #include <string>
 #include <vector>
@@ -29,3 +33,10 @@ int main() {
 
     return 0;
 }
+EOF
+
+echo "src/main.cpp restored. Now compiling and running for the final test..."
+echo "------------------------------------------------------------------"
+
+# Run the build script
+./manitc.sh

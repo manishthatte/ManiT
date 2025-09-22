@@ -43,7 +43,7 @@ struct IntegerLiteral : public Expression {
     std::string to_string() const override;
 };
 
-// **NEW** Represents a boolean literal, `true` or `false`
+// Represents a boolean literal, `true` or `false`
 struct BooleanLiteral : public Expression {
     Token token;
     bool value;
@@ -141,6 +141,16 @@ struct CallExpression : public Expression {
 struct WhileExpression : public Expression {
     Token token; // The 'while' token
     std::unique_ptr<Expression> condition;
+    std::unique_ptr<BlockStatement> body;
+    std::string to_string() const override;
+};
+
+// **NEW** Represents a for loop, e.g., `for (var i = 0; i < 10; i = i + 1) { ... }`
+struct ForLoopExpression : public Expression {
+    Token token; // The 'for' token
+    std::unique_ptr<Statement> initializer;
+    std::unique_ptr<Expression> condition;
+    std::unique_ptr<Expression> increment;
     std::unique_ptr<BlockStatement> body;
     std::string to_string() const override;
 };

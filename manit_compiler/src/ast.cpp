@@ -17,7 +17,6 @@ std::string IntegerLiteral::to_string() const {
     return token.literal;
 }
 
-// **NEW**
 std::string BooleanLiteral::to_string() const {
     return token.literal;
 }
@@ -130,5 +129,28 @@ std::string WhileExpression::to_string() const {
     std::stringstream ss;
     ss << "while" << condition->to_string() << " ";
     ss << body->to_string();
+    return ss.str();
+}
+
+// **NEW**
+std::string ForLoopExpression::to_string() const {
+    std::stringstream ss;
+    ss << "for (";
+    if (initializer) {
+        std::string init_str = initializer->to_string();
+        if (!init_str.empty() && init_str.back() == ';') {
+            init_str.pop_back();
+        }
+        ss << init_str;
+    }
+    ss << "; ";
+    if (condition) {
+        ss << condition->to_string();
+    }
+    ss << "; ";
+    if (increment) {
+        ss << increment->to_string();
+    }
+    ss << ") { " << body->to_string() << " }";
     return ss.str();
 }
