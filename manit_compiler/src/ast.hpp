@@ -9,6 +9,7 @@
 // Forward declarations
 struct Statement;
 struct BlockStatement;
+struct Identifier;
 
 // Base interface for all nodes in the AST
 struct Node {
@@ -74,7 +75,6 @@ struct ReturnStatement : public Statement {
     std::string to_string() const override;
 };
 
-// *** NEW AST NODE ***
 // Represents a statement consisting of a single expression, e.g., `x + 5;`
 struct ExpressionStatement : public Statement {
     Token token; // The first token of the expression
@@ -97,5 +97,24 @@ struct IfExpression : public Expression {
     std::unique_ptr<BlockStatement> alternative; // Can be nullptr for if without else
     std::string to_string() const override;
 };
+
+// *** NEW AST NODE ***
+// Represents a function definition, e.g., `fn(x, y) { x + y; }`
+struct FunctionLiteral : public Expression {
+    Token token; // The 'fn' token
+    std::vector<std::unique_ptr<Identifier>> parameters;
+    std::unique_ptr<BlockStatement> body;
+    std::string to_string() const override;
+};
+
+// *** NEW AST NODE ***
+// Represents a function call, e.g., `add(2, 3)`
+struct CallExpression : public Expression {
+    Token token; // The '(' token
+    std::unique_ptr<Expression> function; // Identifier or FunctionLiteral
+    std::vector<std::unique_ptr<Expression>> arguments;
+    std::string to_string() const override;
+};
+
 
 #endif // MANIT_AST_HPP

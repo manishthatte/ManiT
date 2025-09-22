@@ -49,7 +49,6 @@ std::string ReturnStatement::to_string() const {
     return ss.str();
 }
 
-// *** NEW IMPLEMENTATION ***
 std::string ExpressionStatement::to_string() const {
     std::stringstream ss;
     if (expression) {
@@ -74,5 +73,36 @@ std::string IfExpression::to_string() const {
     if (alternative) {
         ss << " else { " << alternative->to_string() << " }";
     }
+    return ss.str();
+}
+
+// *** NEW IMPLEMENTATION ***
+std::string FunctionLiteral::to_string() const {
+    std::stringstream ss;
+    ss << token.literal; // "fn"
+    ss << "(";
+    for (size_t i = 0; i < parameters.size(); ++i) {
+        ss << parameters[i]->to_string();
+        if (i < parameters.size() - 1) {
+            ss << ", ";
+        }
+    }
+    ss << ") ";
+    ss << body->to_string();
+    return ss.str();
+}
+
+// *** NEW IMPLEMENTATION ***
+std::string CallExpression::to_string() const {
+    std::stringstream ss;
+    ss << function->to_string();
+    ss << "(";
+    for (size_t i = 0; i < arguments.size(); ++i) {
+        ss << arguments[i]->to_string();
+        if (i < arguments.size() - 1) {
+            ss << ", ";
+        }
+    }
+    ss << ")";
     return ss.str();
 }

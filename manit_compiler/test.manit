@@ -1,6 +1,8 @@
-let x = if (1) {
-    55;
-} else {
-    99;
+let add = fn(a, b) {
+    return a + b;
 };
-return x;
+
+let main = fn() {
+    let result = add(10, 20);
+    return result;
+};

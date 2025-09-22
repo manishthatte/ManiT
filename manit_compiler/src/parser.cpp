@@ -13,6 +13,8 @@ Parser::Parser(Lexer& l) : lexer(l) {
         {TokenType::MINUS, Precedence::SUM},
         {TokenType::SLASH, Precedence::PRODUCT},
         {TokenType::STAR, Precedence::PRODUCT},
+        // *** NEW PRECEDENCE FOR FUNCTION CALLS ***
+        {TokenType::LPAREN, Precedence::CALL},
     };
 
     next_token();
@@ -58,8 +60,6 @@ std::unique_ptr<Statement> Parser::parse_statement() {
         case TokenType::RETURN:
             return parse_return_statement();
         default:
-            // *** THIS IS THE KEY CHANGE ***
-            // If it's not a known statement, parse it as an expression statement.
             return parse_expression_statement();
     }
 }
@@ -82,14 +82,24 @@ std::unique_ptr<Expression> Parser::parse_expression(Precedence precedence) {
         case TokenType::IF:
             left_exp = parse_if_expression();
             break;
+        // *** NEW PREFIX PARSER FOR FUNCTIONS ***
+        case TokenType::FN:
+            left_exp = parse_function_literal();
+            break;
         default:
             return nullptr; // No prefix parse function found
     }
 
     // Infix parsing
     while (peek_token.type != TokenType::SEMICOLON && precedence < peek_precedence()) {
-        next_token(); // Move to the infix operator
-        left_exp = parse_infix_expression(std::move(left_exp));
+        // *** REFACTORED TO HANDLE DIFFERENT INFIX TYPES ***
+        if (peek_token.type == TokenType::LPAREN) {
+            next_token();
+            left_exp = parse_call_expression(std::move(left_exp));
+        } else {
+            next_token();
+            left_exp = parse_infix_expression(std::move(left_exp));
+        }
     }
 
     return left_exp;
@@ -171,13 +181,11 @@ std::unique_ptr<LetStatement> Parser::parse_let_statement() {
     return stmt;
 }
 
-// *** NEW IMPLEMENTATION ***
 std::unique_ptr<ExpressionStatement> Parser::parse_expression_statement() {
     auto stmt = std::make_unique<ExpressionStatement>();
     stmt->token = current_token;
     stmt->expression = parse_expression(Precedence::LOWEST);
 
-    // If a semicolon is next, consume it. This makes them optional.
     if (peek_token.type == TokenType::SEMICOLON) {
         next_token();
     }
@@ -187,9 +195,9 @@ std::unique_ptr<ExpressionStatement> Parser::parse_expression_statement() {
 
 std::unique_ptr<BlockStatement> Parser::parse_block_statement() {
     auto block = std::make_unique<BlockStatement>();
-    block->token = current_token; // The '{' token
+    block->token = current_token;
 
-    next_token(); // Move past '{'
+    next_token();
 
     while (current_token.type != TokenType::RBRACE && current_token.type != TokenType::END_OF_FILE) {
         auto stmt = parse_statement();
@@ -204,39 +212,110 @@ std::unique_ptr<BlockStatement> Parser::parse_block_statement() {
 
 std::unique_ptr<Expression> Parser::parse_if_expression() {
     auto expr = std::make_unique<IfExpression>();
-    expr->token = current_token; // The 'if' token
+    expr->token = current_token;
 
-    next_token(); // Expect '('
-    if (current_token.type != TokenType::LPAREN) {
-        return nullptr;
-    }
+    next_token(); 
+    if (current_token.type != TokenType::LPAREN) return nullptr;
     
-    next_token(); // Move to the start of the condition expression
+    next_token();
     expr->condition = parse_expression(Precedence::LOWEST);
 
-    next_token(); // Expect ')'
-    if (current_token.type != TokenType::RPAREN) {
-        return nullptr;
-    }
+    next_token(); 
+    if (current_token.type != TokenType::RPAREN) return nullptr;
 
-    next_token(); // Expect '{'
-    if (current_token.type != TokenType::LBRACE) {
-        return nullptr;
-    }
+    next_token(); 
+    if (current_token.type != TokenType::LBRACE) return nullptr;
     
     expr->consequence = parse_block_statement();
 
-    // Check for optional 'else' block
     if (peek_token.type == TokenType::ELSE) {
-        next_token(); // Consume 'else'
+        next_token();
         
-        next_token(); // Expect '{'
-        if (current_token.type != TokenType::LBRACE) {
-            return nullptr;
-        }
+        next_token();
+        if (current_token.type != TokenType::LBRACE) return nullptr;
         
         expr->alternative = parse_block_statement();
     }
 
+    return expr;
+}
+
+// *** NEW IMPLEMENTATIONS FOR FUNCTIONS ***
+
+std::vector<std::unique_ptr<Identifier>> Parser::parse_function_parameters() {
+    std::vector<std::unique_ptr<Identifier>> params;
+
+    if (peek_token.type == TokenType::RPAREN) {
+        next_token(); // Consume ')'
+        return params;
+    }
+
+    next_token(); // Consume '(' to get to first parameter
+
+    auto ident = std::make_unique<Identifier>();
+    ident->token = current_token;
+    ident->value = current_token.literal;
+    params.push_back(std::move(ident));
+
+    while (peek_token.type == TokenType::COMMA) {
+        next_token(); // consume ','
+        next_token(); // move to next parameter
+        auto next_ident = std::make_unique<Identifier>();
+        next_ident->token = current_token;
+        next_ident->value = current_token.literal;
+        params.push_back(std::move(next_ident));
+    }
+
+    if (peek_token.type != TokenType::RPAREN) return {}; // Return empty on error
+    next_token(); // Consume ')'
+    
+    return params;
+}
+
+std::unique_ptr<Expression> Parser::parse_function_literal() {
+    auto func = std::make_unique<FunctionLiteral>();
+    func->token = current_token; // 'fn' token
+
+    if (peek_token.type != TokenType::LPAREN) return nullptr;
+    next_token(); // consume '('
+
+    func->parameters = parse_function_parameters();
+
+    if (peek_token.type != TokenType::LBRACE) return nullptr;
+    next_token(); // consume '{'
+
+    func->body = parse_block_statement();
+
+    return func;
+}
+
+std::vector<std::unique_ptr<Expression>> Parser::parse_call_arguments() {
+    std::vector<std::unique_ptr<Expression>> args;
+
+    if (peek_token.type == TokenType::RPAREN) {
+        next_token(); // Consume ')'
+        return args;
+    }
+
+    next_token(); // Consume '(' to get to first argument
+    args.push_back(parse_expression(Precedence::LOWEST));
+
+    while (peek_token.type == TokenType::COMMA) {
+        next_token(); // Consume ','
+        next_token(); // Move to next argument's first token
+        args.push_back(parse_expression(Precedence::LOWEST));
+    }
+
+    if (peek_token.type != TokenType::RPAREN) return {}; // Return empty on error
+    next_token(); // Consume ')'
+
+    return args;
+}
+
+std::unique_ptr<Expression> Parser::parse_call_expression(std::unique_ptr<Expression> function) {
+    auto expr = std::make_unique<CallExpression>();
+    expr->token = current_token; // '(' token
+    expr->function = std::move(function);
+    expr->arguments = parse_call_arguments();
     return expr;
 }
