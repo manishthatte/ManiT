@@ -1,31 +1,25 @@
 #!/bin/bash
+# NOTE: set -e removed to allow lli to return our program's exit code.
 
-# Exit immediately if a command exits with a non-zero status.
-set -e
-
-# 1. Create a simple, terminating test file.
-echo 'let main = fn() {
-    let x = 10;
-    if (x == 10) {
-        return 42;
-    } else {
-        return 0;
-    }
-};' > ../test.manit
-
-# 2. Re-compile the manitc compiler
-echo "--- Compiling manitc ---"
+# Create a build directory
 mkdir -p build
-cd build
-cmake .. > /dev/null
-make
-echo ""
-echo "--- Compilation successful ---"
-echo ""
 
-# 3. Run the compiler on our test file
-echo "--- Running manitc on test.manit ---"
-./manitc < ../test.manit
+# Compile the manitc compiler
+clang++ -std=c++17 src/main.cpp src/lexer.cpp src/parser.cpp src/codegen.cpp src/ast.cpp \
+    $(llvm-config --cxxflags --ldflags --system-libs --libs core) \
+    -o build/manitc
 
-echo ""
-echo "--- Compiler finished ---"
+# Run the compiler, pipe its output to the LLVM interpreter
+echo "Running ManiT program..."
+./build/manitc | lli
+
+# Check the exit code of the executed program
+result=$?
+echo "--------------------------------"
+echo "ManiT program exited with code: $result"
+
+if [ "$result" -eq 5 ]; then
+    echo "SUCCESS: The result is 5 as expected."
+else
+    echo "FAILURE: The result was not 5."
+fi

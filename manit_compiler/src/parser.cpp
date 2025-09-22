@@ -1,10 +1,13 @@
 #include "parser.hpp"
-#include <stdexcept> // <-- FIX: Added missing header for std::invalid_argument
+#include <stdexcept>
+#include <charconv> // Required for std::from_chars
+#include <system_error> // Required for std::errc
 
 // Constructor
 Parser::Parser(Lexer& l) : lexer(l) {
     // Initialize precedence map
     precedences = {
+        {TokenType::EQUAL, Precedence::ASSIGN},
         {TokenType::EQUAL_EQUAL, Precedence::EQUALS},
         {TokenType::BANG_EQUAL, Precedence::EQUALS},
         {TokenType::LESS, Precedence::LESSGREATER},
@@ -58,6 +61,8 @@ std::unique_ptr<Statement> Parser::parse_statement() {
     switch (current_token.type) {
         case TokenType::LET:
             return parse_let_statement();
+        case TokenType::VAR:
+            return parse_var_statement();
         case TokenType::RETURN:
             return parse_return_statement();
         default:
@@ -95,17 +100,48 @@ std::unique_ptr<Expression> Parser::parse_expression(Precedence precedence) {
 
     // Infix parsing
     while (peek_token.type != TokenType::SEMICOLON && precedence < peek_precedence()) {
-        if (peek_token.type == TokenType::LPAREN) {
+        TokenType peek_type = peek_token.type;
+        if (peek_type == TokenType::LPAREN) {
             next_token();
             left_exp = parse_call_expression(std::move(left_exp));
-        } else {
+        } else if (peek_type == TokenType::EQUAL) {
+            next_token();
+            left_exp = parse_assignment_expression(std::move(left_exp));
+        } else if (peek_type == TokenType::PLUS || peek_type == TokenType::MINUS ||
+                   peek_type == TokenType::SLASH || peek_type == TokenType::STAR ||
+                   peek_type == TokenType::EQUAL_EQUAL || peek_type == TokenType::BANG_EQUAL ||
+                   peek_type == TokenType::LESS || peek_type == TokenType::GREATER ||
+                   peek_type == TokenType::LESS_EQUAL || peek_type == TokenType::GREATER_EQUAL)
+        {
             next_token();
             left_exp = parse_infix_expression(std::move(left_exp));
+        } else {
+            return left_exp;
         }
     }
 
     return left_exp;
 }
+
+std::unique_ptr<Expression> Parser::parse_assignment_expression(std::unique_ptr<Expression> left) {
+    Identifier* ident_node = dynamic_cast<Identifier*>(left.get());
+    if (!ident_node) {
+        return nullptr;
+    }
+
+    auto expr = std::make_unique<AssignmentExpression>();
+    expr->token = current_token;
+    
+    left.release();
+    expr->name = std::unique_ptr<Identifier>(ident_node);
+
+    Precedence p = current_precedence();
+    next_token();
+    expr->value = parse_expression(p);
+    
+    return expr;
+}
+
 
 std::unique_ptr<Expression> Parser::parse_identifier() {
     auto ident = std::make_unique<Identifier>();
@@ -114,14 +150,19 @@ std::unique_ptr<Expression> Parser::parse_identifier() {
     return ident;
 }
 
+// ** FIXED FUNCTION **
 std::unique_ptr<Expression> Parser::parse_integer_literal() {
     auto literal = std::make_unique<IntegerLiteral>();
     literal->token = current_token;
-    try {
-        literal->value = std::stoll(current_token.literal);
-    } catch (const std::invalid_argument& ia) {
-        return nullptr;
+    
+    const std::string& s = current_token.literal;
+    auto result = std::from_chars(s.data(), s.data() + s.size(), literal->value);
+
+    // Check if the conversion was successful and consumed the entire string
+    if (result.ec != std::errc() || result.ptr != s.data() + s.size()) {
+        return nullptr; // Conversion failed
     }
+    
     return literal;
 }
 
@@ -162,7 +203,7 @@ std::unique_ptr<LetStatement> Parser::parse_let_statement() {
     auto stmt = std::make_unique<LetStatement>();
     stmt->token = current_token;
 
-    next_token(); // Expect IDENTIFIER
+    next_token();
     if (current_token.type != TokenType::IDENTIFIER) return nullptr;
     
     auto ident = std::make_unique<Identifier>();
@@ -170,7 +211,7 @@ std::unique_ptr<LetStatement> Parser::parse_let_statement() {
     ident->value = current_token.literal;
     stmt->name = std::move(ident);
 
-    next_token(); // Expect EQUAL
+    next_token();
     if (current_token.type != TokenType::EQUAL) return nullptr;
     
     next_token();
@@ -182,6 +223,32 @@ std::unique_ptr<LetStatement> Parser::parse_let_statement() {
 
     return stmt;
 }
+
+std::unique_ptr<VarStatement> Parser::parse_var_statement() {
+    auto stmt = std::make_unique<VarStatement>();
+    stmt->token = current_token;
+
+    next_token();
+    if (current_token.type != TokenType::IDENTIFIER) return nullptr;
+    
+    auto ident = std::make_unique<Identifier>();
+    ident->token = current_token;
+    ident->value = current_token.literal;
+    stmt->name = std::move(ident);
+
+    next_token();
+    if (current_token.type != TokenType::EQUAL) return nullptr;
+    
+    next_token();
+    stmt->value = parse_expression(Precedence::LOWEST);
+
+    if (peek_token.type == TokenType::SEMICOLON) {
+        next_token();
+    }
+
+    return stmt;
+}
+
 
 std::unique_ptr<ExpressionStatement> Parser::parse_expression_statement() {
     auto stmt = std::make_unique<ExpressionStatement>();
@@ -222,11 +289,11 @@ std::unique_ptr<Expression> Parser::parse_if_expression() {
     next_token();
     expr->condition = parse_expression(Precedence::LOWEST);
 
-    next_token(); 
-    if (current_token.type != TokenType::RPAREN) return nullptr;
+    if (peek_token.type != TokenType::RPAREN) return nullptr;
+    next_token();
 
-    next_token(); 
-    if (current_token.type != TokenType::LBRACE) return nullptr;
+    if (peek_token.type != TokenType::LBRACE) return nullptr;
+    next_token();
     
     expr->consequence = parse_block_statement();
 
@@ -322,12 +389,12 @@ std::unique_ptr<Expression> Parser::parse_call_expression(std::unique_ptr<Expres
 
 std::unique_ptr<Expression> Parser::parse_while_expression() {
     auto expr = std::make_unique<WhileExpression>();
-    expr->token = current_token; // The 'while' token
+    expr->token = current_token;
 
     if (peek_token.type != TokenType::LPAREN) return nullptr;
     next_token();
 
-    next_token(); // Move past '(' to the expression
+    next_token();
     expr->condition = parse_expression(Precedence::LOWEST);
 
     if (peek_token.type != TokenType::RPAREN) return nullptr;

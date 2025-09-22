@@ -60,9 +60,25 @@ struct InfixExpression : public Expression {
     std::string to_string() const override;
 };
 
-// Represents a `let` statement, e.g., `let x = 5;`
+// Represents an assignment expression, e.g., `x = 10`
+struct AssignmentExpression : public Expression {
+    Token token; // The '=' token
+    std::unique_ptr<Identifier> name;
+    std::unique_ptr<Expression> value;
+    std::string to_string() const override;
+};
+
+// Represents a `let` statement for immutable variables, e.g., `let x = 5;`
 struct LetStatement : public Statement {
     Token token; // The LET token
+    std::unique_ptr<Identifier> name;
+    std::unique_ptr<Expression> value;
+    std::string to_string() const override;
+};
+
+// Represents a `var` statement for mutable variables, e.g., `var x = 5;`
+struct VarStatement : public Statement {
+    Token token; // The VAR token
     std::unique_ptr<Identifier> name;
     std::unique_ptr<Expression> value;
     std::string to_string() const override;
@@ -114,7 +130,6 @@ struct CallExpression : public Expression {
     std::string to_string() const override;
 };
 
-// *** NEW AST NODE ***
 // Represents a while loop, e.g., `while (x < 10) { ... }`
 struct WhileExpression : public Expression {
     Token token; // The 'while' token

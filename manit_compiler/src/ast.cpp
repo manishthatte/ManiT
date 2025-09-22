@@ -29,7 +29,25 @@ std::string InfixExpression::to_string() const {
     return ss.str();
 }
 
+// ** NEW IMPLEMENTATION **
+std::string AssignmentExpression::to_string() const {
+    std::stringstream ss;
+    ss << "(" << name->to_string() << " = " << value->to_string() << ")";
+    return ss.str();
+}
+
 std::string LetStatement::to_string() const {
+    std::stringstream ss;
+    ss << token.literal << " " << name->to_string() << " = ";
+    if (value) {
+        ss << value->to_string();
+    }
+    ss << ";";
+    return ss.str();
+}
+
+// ** NEW IMPLEMENTATION **
+std::string VarStatement::to_string() const {
     std::stringstream ss;
     ss << token.literal << " " << name->to_string() << " = ";
     if (value) {
@@ -105,7 +123,6 @@ std::string CallExpression::to_string() const {
     return ss.str();
 }
 
-// *** NEW IMPLEMENTATION ***
 std::string WhileExpression::to_string() const {
     std::stringstream ss;
     ss << "while" << condition->to_string() << " ";

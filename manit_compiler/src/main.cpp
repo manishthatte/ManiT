@@ -6,11 +6,14 @@
 #include "codegen.hpp"
 
 int main() {
-    std::string line;
-    std::string source_code;
-    while (std::getline(std::cin, line)) {
-        source_code += line + '\n';
-    }
+    // Test case for mutable variables and while loops.
+    std::string source_code = R"(
+        var i = 0;
+        while (i < 5) {
+            i = i + 1;
+        }
+        return i;
+    )";
 
     Lexer l(source_code);
     Parser p(l);

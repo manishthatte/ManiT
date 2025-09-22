@@ -20,9 +20,22 @@ llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
     }
     else if (auto const* ident = dynamic_cast<const Identifier*>(&expr)) {
         if (named_values.count(ident->value)) {
+            // A variable is a pointer (AllocaInst). To get its value, we must load it.
             return builder->CreateLoad(builder->getInt32Ty(), named_values[ident->value], ident->value.c_str());
         }
-        return nullptr;
+        return nullptr; // Error: unknown variable
+    }
+    else if (auto const* assign_expr = dynamic_cast<const AssignmentExpression*>(&expr)) {
+        if (named_values.find(assign_expr->name->value) == named_values.end()) {
+            return nullptr; // Error: undeclared variable
+        }
+        llvm::AllocaInst* variable_alloca = named_values[assign_expr->name->value];
+
+        llvm::Value* new_val = generate_expression(*assign_expr->value);
+        if (!new_val) return nullptr;
+
+        builder->CreateStore(new_val, variable_alloca);
+        return new_val;
     }
     else if (auto const* prefix_expr = dynamic_cast<const PrefixExpression*>(&expr)) {
         llvm::Value* right = generate_expression(*prefix_expr->right);
@@ -75,10 +88,14 @@ llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
         llvm::Function* the_function = builder->GetInsertBlock()->getParent();
 
         llvm::BasicBlock* then_bb = llvm::BasicBlock::Create(*context, "then", the_function);
-        llvm::BasicBlock* else_bb = llvm::BasicBlock::Create(*context, "else", the_function);
-        llvm::BasicBlock* merge_bb = llvm::BasicBlock::Create(*context, "ifcont", the_function);
-
-        builder->CreateCondBr(cond_v, then_bb, else_bb);
+        llvm::BasicBlock* else_bb = llvm::BasicBlock::Create(*context, "else");
+        llvm::BasicBlock* merge_bb = llvm::BasicBlock::Create(*context, "ifcont");
+        
+        if (if_expr->alternative) {
+            builder->CreateCondBr(cond_v, then_bb, else_bb);
+        } else {
+            builder->CreateCondBr(cond_v, then_bb, merge_bb);
+        }
 
         builder->SetInsertPoint(then_bb);
         llvm::Value* then_val = nullptr;
@@ -97,10 +114,12 @@ llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
         if (!builder->GetInsertBlock()->getTerminator()) builder->CreateBr(merge_bb);
         llvm::BasicBlock* then_end_bb = builder->GetInsertBlock();
         
-        builder->SetInsertPoint(else_bb);
         llvm::Value* else_val = nullptr;
+        llvm::BasicBlock* else_end_bb = else_bb;
         if (if_expr->alternative) {
-             if (!if_expr->alternative->statements.empty()) {
+            the_function->insert(the_function->end(), else_bb); // Add block to function
+            builder->SetInsertPoint(else_bb);
+            if (!if_expr->alternative->statements.empty()) {
                 if (auto* last_stmt_as_expr = dynamic_cast<ExpressionStatement*>(if_expr->alternative->statements.back().get())) {
                     for (size_t i = 0; i < if_expr->alternative->statements.size() - 1; ++i) {
                         generate_statement(*if_expr->alternative->statements[i]);
@@ -112,16 +131,21 @@ llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
                     }
                 }
             }
+            if (!builder->GetInsertBlock()->getTerminator()) builder->CreateBr(merge_bb);
+            else_end_bb = builder->GetInsertBlock();
         }
-        if (!builder->GetInsertBlock()->getTerminator()) builder->CreateBr(merge_bb);
-        llvm::BasicBlock* else_end_bb = builder->GetInsertBlock();
         
+        the_function->insert(the_function->end(), merge_bb); // Add block to function
         builder->SetInsertPoint(merge_bb);
-        llvm::PHINode* pn = builder->CreatePHI(builder->getInt32Ty(), 2, "iftmp");
 
-        pn->addIncoming(then_val ? then_val : builder->getInt32(0), then_end_bb);
-        pn->addIncoming(else_val ? else_val : builder->getInt32(0), else_end_bb);
-        return pn;
+        if (then_val || else_val) {
+            llvm::PHINode* pn = builder->CreatePHI(builder->getInt32Ty(), 2, "iftmp");
+            pn->addIncoming(then_val ? then_val : builder->getInt32(0), then_end_bb);
+            pn->addIncoming(else_val ? else_val : builder->getInt32(0), else_end_bb);
+            return pn;
+        }
+
+        return builder->getInt32(0);
     }
     else if (auto const* func_lit = dynamic_cast<const FunctionLiteral*>(&expr)) {
         llvm::BasicBlock* original_block = builder->GetInsertBlock();
@@ -164,13 +188,8 @@ llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
         if (!ident) return nullptr;
 
         llvm::Function* callee_func = module->getFunction(ident->value);
-        if (!callee_func) {
-            return nullptr;
-        }
-
-        if (callee_func->arg_size() != call_expr->arguments.size()) {
-            return nullptr;
-        }
+        if (!callee_func) return nullptr;
+        if (callee_func->arg_size() != call_expr->arguments.size()) return nullptr;
 
         std::vector<llvm::Value*> args_v;
         for (const auto& arg : call_expr->arguments) {
@@ -225,6 +244,15 @@ void CodeGenerator::generate_statement(const Statement& stmt) {
             named_values[let_stmt->name->value] = alloca;
         }
     }
+    else if (auto const* var_stmt = dynamic_cast<const VarStatement*>(&stmt)) {
+        llvm::Value* val = generate_expression(*var_stmt->value);
+        if (val) {
+            llvm::Function* the_function = builder->GetInsertBlock()->getParent();
+            llvm::AllocaInst* alloca = create_entry_block_alloca(the_function, var_stmt->name->value, val->getType());
+            builder->CreateStore(val, alloca);
+            named_values[var_stmt->name->value] = alloca;
+        }
+    }
     else if (auto const* return_stmt = dynamic_cast<const ReturnStatement*>(&stmt)) {
         if (return_stmt->return_value) {
             llvm::Value* return_val = generate_expression(*return_stmt->return_value);
@@ -241,16 +269,32 @@ void CodeGenerator::generate_statement(const Statement& stmt) {
 }
 
 void CodeGenerator::generate(const Program& program) {
+    llvm::FunctionType* func_type = llvm::FunctionType::get(builder->getInt32Ty(), false);
+    llvm::Function* main_func = llvm::Function::Create(func_type, llvm::Function::ExternalLinkage, "main", module.get());
+    llvm::BasicBlock* entry = llvm::BasicBlock::Create(*context, "entry", main_func);
+    builder->SetInsertPoint(entry);
+
     for (const auto& stmt : program.statements) {
         generate_statement(*stmt);
     }
 
-    llvm::Function* main_func = module->getFunction("main");
-    if (main_func) {
-        if (main_func->getFunctionType() != llvm::FunctionType::get(builder->getInt32Ty(), false)) {
-            return;
+    if (!builder->GetInsertBlock()->getTerminator()) {
+        builder->CreateRet(builder->getInt32(0));
+    }
+    
+    bool user_defined_main = false;
+    for (const auto& stmt : program.statements) {
+        // ** FIXED: Use stmt.get() to access the raw pointer **
+        if (auto const* let_stmt = dynamic_cast<const LetStatement*>(stmt.get())) {
+            if (let_stmt->name->value == "main") {
+                user_defined_main = true;
+                break;
+            }
         }
-        main_func->setLinkage(llvm::Function::ExternalLinkage);
+    }
+
+    if (user_defined_main) {
+        main_func->eraseFromParent();
     }
 
     llvm::verifyModule(*module, &llvm::errs());
