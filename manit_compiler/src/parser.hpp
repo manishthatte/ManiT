@@ -35,6 +35,8 @@ private:
     std::unique_ptr<Statement> parse_statement();
     std::unique_ptr<LetStatement> parse_let_statement();
     std::unique_ptr<ReturnStatement> parse_return_statement();
+    // *** NEW DECLARATION ***
+    std::unique_ptr<ExpressionStatement> parse_expression_statement();
     
     std::unique_ptr<Expression> parse_expression(Precedence precedence);
     
@@ -44,7 +46,6 @@ private:
     std::unique_ptr<Expression> parse_prefix_expression();
     std::unique_ptr<Expression> parse_infix_expression(std::unique_ptr<Expression> left);
 
-    // *** NEW DECLARATIONS ***
     std::unique_ptr<Expression> parse_if_expression();
     std::unique_ptr<BlockStatement> parse_block_statement();
 

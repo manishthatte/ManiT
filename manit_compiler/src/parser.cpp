@@ -58,7 +58,9 @@ std::unique_ptr<Statement> Parser::parse_statement() {
         case TokenType::RETURN:
             return parse_return_statement();
         default:
-            return nullptr;
+            // *** THIS IS THE KEY CHANGE ***
+            // If it's not a known statement, parse it as an expression statement.
+            return parse_expression_statement();
     }
 }
 
@@ -77,7 +79,6 @@ std::unique_ptr<Expression> Parser::parse_expression(Precedence precedence) {
         case TokenType::MINUS:
             left_exp = parse_prefix_expression();
             break;
-        // *** NEW CASE FOR IF EXPRESSION ***
         case TokenType::IF:
             left_exp = parse_if_expression();
             break;
@@ -171,6 +172,19 @@ std::unique_ptr<LetStatement> Parser::parse_let_statement() {
 }
 
 // *** NEW IMPLEMENTATION ***
+std::unique_ptr<ExpressionStatement> Parser::parse_expression_statement() {
+    auto stmt = std::make_unique<ExpressionStatement>();
+    stmt->token = current_token;
+    stmt->expression = parse_expression(Precedence::LOWEST);
+
+    // If a semicolon is next, consume it. This makes them optional.
+    if (peek_token.type == TokenType::SEMICOLON) {
+        next_token();
+    }
+    return stmt;
+}
+
+
 std::unique_ptr<BlockStatement> Parser::parse_block_statement() {
     auto block = std::make_unique<BlockStatement>();
     block->token = current_token; // The '{' token
@@ -188,14 +202,12 @@ std::unique_ptr<BlockStatement> Parser::parse_block_statement() {
     return block;
 }
 
-// *** NEW IMPLEMENTATION ***
 std::unique_ptr<Expression> Parser::parse_if_expression() {
     auto expr = std::make_unique<IfExpression>();
     expr->token = current_token; // The 'if' token
 
     next_token(); // Expect '('
     if (current_token.type != TokenType::LPAREN) {
-        // Error handling: expected an opening parenthesis
         return nullptr;
     }
     
@@ -204,13 +216,11 @@ std::unique_ptr<Expression> Parser::parse_if_expression() {
 
     next_token(); // Expect ')'
     if (current_token.type != TokenType::RPAREN) {
-        // Error handling: expected a closing parenthesis
         return nullptr;
     }
 
     next_token(); // Expect '{'
     if (current_token.type != TokenType::LBRACE) {
-        // Error handling: expected an opening brace for the consequence
         return nullptr;
     }
     
@@ -222,7 +232,6 @@ std::unique_ptr<Expression> Parser::parse_if_expression() {
         
         next_token(); // Expect '{'
         if (current_token.type != TokenType::LBRACE) {
-            // Error handling: expected an opening brace for the alternative
             return nullptr;
         }
         
