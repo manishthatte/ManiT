@@ -5,13 +5,22 @@
 #include <vector>
 
 enum class TokenType {
-    FN, LET, VAR, IF, ELSE, WHILE, FOR, RETURN, TRUE, FALSE,
+    // Keywords
+    FN, LET, VAR, IF, ELSE, WHILE, FOR, RETURN, TRUE, FALSE, STRUCT,
+
+    // Identifiers and Literals
     IDENTIFIER, INTEGER_LITERAL,
+
+    // Operators
     PLUS, MINUS, STAR, SLASH,
     EQUAL, EQUAL_EQUAL, BANG, BANG_EQUAL,
     LESS, LESS_EQUAL, GREATER, GREATER_EQUAL,
+
+    // Delimiters
     LPAREN, RPAREN, LBRACE, RBRACE, LBRACKET, RBRACKET,
-    COMMA, SEMICOLON,
+    COMMA, SEMICOLON, COLON,
+
+    // Special
     END_OF_FILE, ILLEGAL
 };
 

@@ -2,8 +2,70 @@
 #include <llvm/IR/Verifier.h>
 #include <llvm/Support/raw_ostream.h>
 
-CodeGenerator::CodeGenerator() { context = std::make_unique<llvm::LLVMContext>(); module = std::make_unique<llvm::Module>("ManiT_Module", *context); builder = std::make_unique<llvm::IRBuilder<>>(*context); }
-llvm::AllocaInst* CodeGenerator::create_entry_block_alloca(llvm::Function* the_function, const std::string& var_name, llvm::Type* type) { llvm::IRBuilder<> tmp_builder(&the_function->getEntryBlock(), the_function->getEntryBlock().begin()); return tmp_builder.CreateAlloca(type, nullptr, var_name); }
+CodeGenerator::CodeGenerator() {
+    context = std::make_unique<llvm::LLVMContext>();
+    module = std::make_unique<llvm::Module>("ManiT_Module", *context);
+    builder = std::make_unique<llvm::IRBuilder<>>(*context);
+}
+
+llvm::AllocaInst* CodeGenerator::create_entry_block_alloca(llvm::Function* the_function, const std::string& var_name, llvm::Type* type) {
+    llvm::IRBuilder<> tmp_builder(&the_function->getEntryBlock(), the_function->getEntryBlock().begin());
+    return tmp_builder.CreateAlloca(type, nullptr, var_name);
+}
+
+void CodeGenerator::generate_statement(const Statement& stmt) {
+    if (auto const* let_stmt = dynamic_cast<const LetStatement*>(&stmt)) {
+        llvm::Value* val = generate_expression(*let_stmt->value);
+        if (!val) return;
+        
+        // --- BUG FIX: Corrected control flow from if/if/else to if/else if/else ---
+        if (auto* func = llvm::dyn_cast<llvm::Function>(val)) {
+            func->setName(let_stmt->name->value);
+        }
+        else if (auto* alloca = llvm::dyn_cast<llvm::AllocaInst>(val)) {
+            alloca->setName(let_stmt->name->value);
+            named_values[let_stmt->name->value] = alloca;
+        } else {
+            llvm::Function* the_function = builder->GetInsertBlock()->getParent();
+            llvm::AllocaInst* scalar_alloca = create_entry_block_alloca(the_function, let_stmt->name->value, val->getType());
+            builder->CreateStore(val, scalar_alloca);
+            named_values[let_stmt->name->value] = scalar_alloca;
+        }
+    }
+    else if (auto const* var_stmt = dynamic_cast<const VarStatement*>(&stmt)) {
+        llvm::Value* val = generate_expression(*var_stmt->value);
+        if (!val) return;
+        llvm::Function* the_function = builder->GetInsertBlock()->getParent();
+        llvm::AllocaInst* alloca = create_entry_block_alloca(the_function, var_stmt->name->value, val->getType());
+        builder->CreateStore(val, alloca);
+        named_values[var_stmt->name->value] = alloca;
+    }
+    else if (auto const* struct_def_stmt = dynamic_cast<const StructDefinitionStatement*>(&stmt)) {
+        const std::string& struct_name = struct_def_stmt->name->value;
+        if (struct_types.count(struct_name)) { return; }
+        llvm::StructType* struct_type = llvm::StructType::create(*context, struct_name);
+        struct_types[struct_name] = struct_type;
+        std::vector<llvm::Type*> field_types;
+        for (const auto& field : struct_def_stmt->fields) {
+            if (field.type->value == "i32") {
+                field_types.push_back(builder->getInt32Ty());
+            }
+        }
+        struct_type->setBody(field_types);
+    }
+    else if (auto const* return_stmt = dynamic_cast<const ReturnStatement*>(&stmt)) {
+        if (return_stmt->return_value) {
+            llvm::Value* return_val = generate_expression(*return_stmt->return_value);
+            if (return_val) builder->CreateRet(return_val);
+        } else {
+            builder->CreateRetVoid();
+        }
+    }
+    else if (auto const* expr_stmt = dynamic_cast<const ExpressionStatement*>(&stmt)) {
+        generate_expression(*expr_stmt->expression);
+    }
+}
+
 llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
     if (auto const* int_lit = dynamic_cast<const IntegerLiteral*>(&expr)) { return builder->getInt32(int_lit->value); }
     else if (auto const* bool_lit = dynamic_cast<const BooleanLiteral*>(&expr)) { return builder->getInt1(bool_lit->value); }
@@ -13,24 +75,31 @@ llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
         uint64_t array_size = array_lit->elements.size();
         llvm::ArrayType* array_type = llvm::ArrayType::get(element_type, array_size);
         llvm::AllocaInst* alloca = create_entry_block_alloca(the_function, "array_lit", array_type);
+        
+        std::vector<llvm::Value*> element_values;
+        element_values.reserve(array_size);
+        for (const auto& elem_expr : array_lit->elements) {
+            llvm::Value* val = generate_expression(*elem_expr);
+            if (!val) return nullptr;
+            element_values.push_back(val);
+        }
+
         for (uint64_t i = 0; i < array_size; ++i) {
-            llvm::Value* element_val = generate_expression(*array_lit->elements[i]);
-            if (!element_val) return nullptr;
             std::vector<llvm::Value*> indices = { builder->getInt32(0), builder->getInt32(i) };
             llvm::Value* element_ptr = builder->CreateGEP(array_type, alloca, indices, "element_ptr");
-            builder->CreateStore(element_val, element_ptr);
+            builder->CreateStore(element_values[i], element_ptr);
         }
         return alloca;
     }
     else if (auto const* index_expr = dynamic_cast<const IndexExpression*>(&expr)) {
-        llvm::Value* array_val = generate_expression(*index_expr->left);
-        if (!array_val) return nullptr;
+        llvm::Value* array_ptr = generate_expression(*index_expr->left);
+        if (!array_ptr) return nullptr;
         llvm::Value* index_val = generate_expression(*index_expr->index);
         if (!index_val) return nullptr;
-        auto* array_alloca = llvm::cast<llvm::AllocaInst>(array_val);
-        llvm::Type* array_type = array_alloca->getAllocatedType();
+        
+        llvm::Type* array_type = llvm::cast<llvm::AllocaInst>(array_ptr)->getAllocatedType();
         std::vector<llvm::Value*> indices = { builder->getInt32(0), index_val };
-        llvm::Value* element_ptr = builder->CreateGEP(array_type, array_val, indices, "element_ptr");
+        llvm::Value* element_ptr = builder->CreateGEP(array_type, array_ptr, indices, "element_ptr");
         llvm::Type* element_type = llvm::cast<llvm::ArrayType>(array_type)->getElementType();
         return builder->CreateLoad(element_type, element_ptr, "array_idx_val");
     }
@@ -44,10 +113,10 @@ llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
         return nullptr;
     }
     else if (auto const* assign_expr = dynamic_cast<const AssignmentExpression*>(&expr)) {
-        if (named_values.find(assign_expr->name->value) == named_values.end()) return nullptr;
-        llvm::AllocaInst* variable_alloca = named_values[assign_expr->name->value];
         llvm::Value* new_val = generate_expression(*assign_expr->value);
         if (!new_val) return nullptr;
+        if (named_values.find(assign_expr->name->value) == named_values.end()) return nullptr;
+        llvm::AllocaInst* variable_alloca = named_values[assign_expr->name->value];
         builder->CreateStore(new_val, variable_alloca);
         return new_val;
     }
@@ -131,52 +200,64 @@ llvm::Value* CodeGenerator::generate_expression(const Expression& expr) {
         builder->SetInsertPoint(loop_exit_bb); return llvm::Constant::getNullValue(builder->getInt32Ty());
     }
     else if (auto const* for_expr = dynamic_cast<const ForLoopExpression*>(&expr)) {
-        auto old_named_values = named_values; if (for_expr->initializer) generate_statement(*for_expr->initializer);
+        auto old_named_values = named_values;
+        if (for_expr->initializer) generate_statement(*for_expr->initializer);
         llvm::Function* the_function = builder->GetInsertBlock()->getParent();
         llvm::BasicBlock* loop_header_bb = llvm::BasicBlock::Create(*context, "loop_header", the_function);
         llvm::BasicBlock* loop_body_bb = llvm::BasicBlock::Create(*context, "loop_body", the_function);
         llvm::BasicBlock* loop_inc_bb = llvm::BasicBlock::Create(*context, "loop_inc", the_function);
         llvm::BasicBlock* loop_exit_bb = llvm::BasicBlock::Create(*context, "loop_exit", the_function);
-        builder->CreateBr(loop_header_bb); builder->SetInsertPoint(loop_header_bb);
-        llvm::Value* cond_v; if (for_expr->condition) { cond_v = generate_expression(*for_expr->condition); if (!cond_v) return nullptr; } else { cond_v = builder->getInt1(true); }
+        builder->CreateBr(loop_header_bb);
+        builder->SetInsertPoint(loop_header_bb);
+        llvm::Value* cond_v; if (for_expr->condition) { cond_v = generate_expression(*for_expr->condition); } else { cond_v = builder->getInt1(true); }
+        if (!cond_v) return nullptr;
         builder->CreateCondBr(cond_v, loop_body_bb, loop_exit_bb);
-        builder->SetInsertPoint(loop_body_bb); if (for_expr->body) { for (const auto& stmt : for_expr->body->statements) generate_statement(*stmt); }
+        builder->SetInsertPoint(loop_body_bb);
+        if (for_expr->body) { 
+            for (const auto& stmt : for_expr->body->statements) {
+                generate_statement(*stmt);
+            }
+        }
         if (!builder->GetInsertBlock()->getTerminator()) builder->CreateBr(loop_inc_bb);
-        builder->SetInsertPoint(loop_inc_bb); if (for_expr->increment) generate_expression(*for_expr->increment);
+        builder->SetInsertPoint(loop_inc_bb);
+        if (for_expr->increment) generate_expression(*for_expr->increment);
         if (!builder->GetInsertBlock()->getTerminator()) builder->CreateBr(loop_header_bb);
-        builder->SetInsertPoint(loop_exit_bb); named_values = old_named_values; return llvm::Constant::getNullValue(builder->getInt32Ty());
+        builder->SetInsertPoint(loop_exit_bb);
+        named_values = old_named_values;
+        return llvm::Constant::getNullValue(builder->getInt32Ty());
     }
     return nullptr;
 }
-void CodeGenerator::generate_statement(const Statement& stmt) {
-    if (auto const* let_stmt = dynamic_cast<const LetStatement*>(&stmt)) {
-        llvm::Value* val = generate_expression(*let_stmt->value);
-        if (val) {
-            if (auto* func = llvm::dyn_cast<llvm::Function>(val)) { func->setName(let_stmt->name->value); return; }
-            if (auto* alloca = llvm::dyn_cast<llvm::AllocaInst>(val)) { alloca->setName(let_stmt->name->value); named_values[let_stmt->name->value] = alloca; }
-            else { llvm::Function* the_function = builder->GetInsertBlock()->getParent(); llvm::AllocaInst* scalar_alloca = create_entry_block_alloca(the_function, let_stmt->name->value, val->getType()); builder->CreateStore(val, scalar_alloca); named_values[let_stmt->name->value] = scalar_alloca; }
-        }
-    }
-    else if (auto const* var_stmt = dynamic_cast<const VarStatement*>(&stmt)) {
-        llvm::Value* val = generate_expression(*var_stmt->value);
-        if (val) { llvm::Function* the_function = builder->GetInsertBlock()->getParent(); llvm::AllocaInst* alloca = create_entry_block_alloca(the_function, var_stmt->name->value, val->getType()); builder->CreateStore(val, alloca); named_values[var_stmt->name->value] = alloca; }
-    }
-    else if (auto const* return_stmt = dynamic_cast<const ReturnStatement*>(&stmt)) {
-        if (return_stmt->return_value) { llvm::Value* return_val = generate_expression(*return_stmt->return_value); if (return_val) builder->CreateRet(return_val); }
-        else { builder->CreateRetVoid(); }
-    }
-    else if (auto const* expr_stmt = dynamic_cast<const ExpressionStatement*>(&stmt)) {
-        generate_expression(*expr_stmt->expression);
-    }
-}
+
+
 void CodeGenerator::generate(const Program& program) {
     llvm::FunctionType* func_type = llvm::FunctionType::get(builder->getInt32Ty(), false);
     llvm::Function* main_func = llvm::Function::Create(func_type, llvm::Function::ExternalLinkage, "main", module.get());
-    llvm::BasicBlock* entry = llvm::BasicBlock::Create(*context, "entry", main_func); builder->SetInsertPoint(entry);
-    for (const auto& stmt : program.statements) { generate_statement(*stmt); }
-    if (!builder->GetInsertBlock()->getTerminator()) { builder->CreateRet(builder->getInt32(0)); }
+    llvm::BasicBlock* entry = llvm::BasicBlock::Create(*context, "entry", main_func);
+    builder->SetInsertPoint(entry);
+
+    for (const auto& stmt : program.statements) {
+        generate_statement(*stmt);
+    }
+
+    if (!builder->GetInsertBlock()->getTerminator()) {
+        builder->CreateRet(builder->getInt32(0));
+    }
+
     bool user_defined_main = false;
-    for (const auto& stmt : program.statements) { if (auto const* let_stmt = dynamic_cast<const LetStatement*>(stmt.get())) { if (let_stmt->name->value == "main") { user_defined_main = true; break; } } }
-    if (user_defined_main) { main_func->eraseFromParent(); }
-    llvm::verifyModule(*module, &llvm::errs()); module->print(llvm::outs(), nullptr);
+    for (const auto& stmt : program.statements) {
+        if (auto const* let_stmt = dynamic_cast<const LetStatement*>(stmt.get())) {
+            if (let_stmt->name->value == "main") {
+                user_defined_main = true;
+                break;
+            }
+        }
+    }
+
+    if (user_defined_main) {
+        main_func->eraseFromParent();
+    }
+
+    llvm::verifyModule(*module, &llvm::errs());
+    module->print(llvm::outs(), nullptr);
 }
