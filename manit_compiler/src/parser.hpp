@@ -7,45 +7,28 @@
 #include <map>
 #include <vector>
 
-// Precedence levels for operators
-enum Precedence {
-    LOWEST,
-    ASSIGN,      // =
-    EQUALS,      // ==
-    LESSGREATER, // > or <
-    SUM,         // +
-    PRODUCT,     // *
-    PREFIX,      // -X or !X
-    CALL         // myFunction(X)
-};
+enum Precedence { LOWEST, ASSIGN, EQUALS, LESSGREATER, SUM, PRODUCT, PREFIX, CALL, INDEX };
 
 class Parser {
 public:
     Parser(Lexer& l);
-
     std::unique_ptr<Program> parse_program();
-
 private:
     Lexer& lexer;
-    Token current_token;
-    Token peek_token;
-    
-    // Maps token types to their precedence
+    Token current_token, peek_token;
     std::map<TokenType, Precedence> precedences;
-
     void next_token();
     std::unique_ptr<Statement> parse_statement();
     std::unique_ptr<LetStatement> parse_let_statement();
     std::unique_ptr<VarStatement> parse_var_statement();
     std::unique_ptr<ReturnStatement> parse_return_statement();
     std::unique_ptr<ExpressionStatement> parse_expression_statement();
-    
     std::unique_ptr<Expression> parse_expression(Precedence precedence);
-    
-    // Parsing functions for different expression types
     std::unique_ptr<Expression> parse_identifier();
     std::unique_ptr<Expression> parse_integer_literal();
     std::unique_ptr<Expression> parse_boolean_literal();
+    std::unique_ptr<Expression> parse_array_literal();
+    std::unique_ptr<Expression> parse_index_expression(std::unique_ptr<Expression> left);
     std::unique_ptr<Expression> parse_prefix_expression();
     std::unique_ptr<Expression> parse_infix_expression(std::unique_ptr<Expression> left);
     std::unique_ptr<Expression> parse_assignment_expression(std::unique_ptr<Expression> left);
@@ -56,9 +39,8 @@ private:
     std::vector<std::unique_ptr<Identifier>> parse_function_parameters();
     std::vector<std::unique_ptr<Expression>> parse_call_arguments();
     std::unique_ptr<Expression> parse_while_expression();
-    std::unique_ptr<Expression> parse_for_loop_expression(); // **NEW**
-
-
+    std::unique_ptr<Expression> parse_for_loop_expression();
+    std::vector<std::unique_ptr<Expression>> parse_expression_list(TokenType end_token);
     Precedence peek_precedence();
     Precedence current_precedence();
 };
